@@ -328,30 +328,48 @@ def _run_in_page_export(page, token: str, csv_url: dict):
       - full control over the filter (we send 'has any value', all rows), and
       - passing the WAF/CORS checks (request originates from the real page).
     """
-    # Step 1: navigate to the Bookings report page (cookies carry over the
-    # gokenko.com domain, so no location chooser is needed).
-    log.info("Navigating to reports page for export")
-    reached = False
-    for attempt in range(3):
-        try:
-            page.goto(
-                config.REPORTS_URL,
-                wait_until="domcontentloaded",
-                timeout=config.BROWSER_TIMEOUT_MS,
-            )
-            page.wait_for_timeout(5000)
-            _settle(page)
-            log.info(f"[debug] reports page URL: {page.url}")
-            if "crm.gokenko.com" in page.url and "reports" in page.url:
-                reached = True
-                break
-            page.wait_for_timeout(2000)
-        except Exception as exc:  # noqa: BLE001
-            log.info(f"[debug] reports navigation attempt {attempt+1}: {exc}")
-            page.wait_for_timeout(2000)
+    # Step 1: navigate so the fetch is SAME-ORIGIN with the export API.
+    # The export endpoint lives on data.bookeeapp.com, but the report UI is on
+    # crm.gokenko.com. Firing the fetch from crm.gokenko.com is cross-origin and
+    # the browser blocks it ("TypeError: Failed to fetch"). Loading the API
+    # origin first makes the fetch same-origin, so cookies + WAF token are sent
+    # and CORS no longer applies.
+    log.info("Navigating to export API origin for same-origin fetch")
+    same_origin = False
+    try:
+        page.goto(
+            config.EXPORT_BASE_URL,
+            wait_until="domcontentloaded",
+            timeout=config.BROWSER_TIMEOUT_MS,
+        )
+        page.wait_for_timeout(2000)
+        _settle(page)
+        log.info(f"[debug] API origin page URL: {page.url}")
+        if config.EXPORT_BASE_URL.split("//")[-1] in page.url:
+            same_origin = True
+    except Exception as exc:  # noqa: BLE001
+        log.info(f"[debug] could not load API origin directly: {exc}")
 
-    if not reached:
-        log.info("[debug] could not confirm reports page; trying fetch anyway")
+    # Fallback: if the API origin won't load standalone, return to the report
+    # page (legacy behaviour) and try from there.
+    if not same_origin:
+        log.info("[debug] falling back to reports page navigation")
+        for attempt in range(3):
+            try:
+                page.goto(
+                    config.REPORTS_URL,
+                    wait_until="domcontentloaded",
+                    timeout=config.BROWSER_TIMEOUT_MS,
+                )
+                page.wait_for_timeout(5000)
+                _settle(page)
+                log.info(f"[debug] reports page URL: {page.url}")
+                if "crm.gokenko.com" in page.url and "reports" in page.url:
+                    break
+                page.wait_for_timeout(2000)
+            except Exception as exc:  # noqa: BLE001
+                log.info(f"[debug] reports navigation attempt {attempt+1}: {exc}")
+                page.wait_for_timeout(2000)
 
     # Step 2: issue the export request from the page (same origin as the export
     # API call the web app makes), with our full-data payload.
