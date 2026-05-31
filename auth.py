@@ -89,9 +89,29 @@ def _login_session(do_export: bool):
     with sync_playwright() as p:
         browser = p.chromium.launch(
             headless=config.BROWSER_HEADLESS,
-            args=["--no-sandbox", "--disable-dev-shm-usage"],
+            args=[
+                "--no-sandbox",
+                "--disable-dev-shm-usage",
+                # Hide the most obvious automation signals from bot detection.
+                "--disable-blink-features=AutomationControlled",
+            ],
         )
-        context = browser.new_context()
+        # Present as a normal desktop Chrome rather than HeadlessChrome, which
+        # WAF/bot-detection flags immediately. A real UA + viewport + locale
+        # makes the headless CI run look like the local (headed) run that works.
+        context = browser.new_context(
+            user_agent=(
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/124.0.0.0 Safari/537.36"
+            ),
+            viewport={"width": 1366, "height": 768},
+            locale="en-US",
+        )
+        # Remove navigator.webdriver (the canonical automation tell).
+        context.add_init_script(
+            "Object.defineProperty(navigator, 'webdriver', {get: () => undefined});"
+        )
         page = context.new_page()
 
         def _on_request(request):
