@@ -390,7 +390,10 @@ def _run_in_page_export(page, token: str, csv_url: dict):
     # If the direct fetch was blocked, fall back to clicking the Download
     # button on the page (uses the page's own filters/token).
     if status != 200:
-        log.info(f"[debug] in-page fetch returned {status}; trying Download button")
+        log.info(
+            f"[debug] in-page fetch returned {status}; body: {str(body)[:300]}"
+        )
+        log.info("[debug] trying Download button")
         return _click_download_fallback(page, csv_url)
 
     try:
