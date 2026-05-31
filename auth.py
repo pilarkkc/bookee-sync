@@ -679,7 +679,7 @@ def _fill_first(page, selectors, value) -> None:
             # events React listens for; finally dispatch input+change to be safe.
             el.click()
             el.fill("")
-            el.press_sequentially(value, delay=30)
+            el.type(value, delay=30)
             try:
                 el.dispatch_event("input")
                 el.dispatch_event("change")
