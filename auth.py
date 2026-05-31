@@ -201,12 +201,36 @@ def _login_session(do_export: bool):
                     "button:has-text('Login')",
                 ],
             )
+            # Fallback: many login forms also submit on Enter in the password
+            # field. Harmless if the click already worked.
+            try:
+                page.keyboard.press("Enter")
+            except Exception:  # noqa: BLE001
+                pass
 
-            # Let the post-login request fire and the SPA navigate to the
-            # business/location selection screen.
-            page.wait_for_timeout(2000)
+            # Let the post-login request fire and the SPA navigate away from
+            # the login screen. Poll for the URL to leave /login (up to ~15s)
+            # instead of a fixed 2s wait, which was often too short.
+            left_login = False
+            for _ in range(15):
+                page.wait_for_timeout(1000)
+                if "/login" not in page.url:
+                    left_login = True
+                    break
             _settle(page)
             log.info(f"[debug] after login, current URL: {page.url}")
+            if not left_login:
+                # Still on /login → look for a visible error message to log it.
+                try:
+                    err = page.locator(
+                        "text=/incorrect|invalid|wrong|error|ไม่ถูกต้อง/i"
+                    )
+                    if err.count():
+                        log.error(
+                            f"[debug] login page error text: {err.first.inner_text()[:200]}"
+                        )
+                except Exception:  # noqa: BLE001
+                    pass
 
             # Step 2: ALWAYS select the location ("Pilar Studio") so the SPA
             # navigates into crm.gokenko.com/calendar. This step is required:
@@ -648,7 +672,19 @@ def _fill_first(page, selectors, value) -> None:
         except PlaywrightTimeoutError:
             el = None
         if el:
-            el.fill(value)
+            # Kenko's login is a React SPA. A bare .fill() sets the DOM value
+            # but does not always fire React's onChange, so the component state
+            # stays empty and the Sign-in button submits blank credentials.
+            # Clear, focus, then type character-by-character to fire the input
+            # events React listens for; finally dispatch input+change to be safe.
+            el.click()
+            el.fill("")
+            el.press_sequentially(value, delay=30)
+            try:
+                el.dispatch_event("input")
+                el.dispatch_event("change")
+            except Exception:  # noqa: BLE001
+                pass
             return
     raise AuthError(f"None of the input selectors matched: {selectors}")
 
